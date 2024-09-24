@@ -345,9 +345,9 @@ public:
       else
       {
         // TODO: lazily assume width is 1024 (2 ^ 10)
-        float quantized_x = (float)(x >> 7) / 8.0;
-        s_readidx = (uint32_t)BUFFER_LENGTH * quantized_x;
-        s_readidx_end = (uint32_t)BUFFER_LENGTH;
+        float quantized_x = (float)(x >> 7);
+        s_readidx = (uint32_t)(BUFFER_LENGTH * quantized_x / 8.0);
+        s_readidx_end = (uint32_t)(BUFFER_LENGTH * (quantized_x + 1.0) / 8.0);
       }
       break;
     // case k_unit_touch_phase_stationary:
