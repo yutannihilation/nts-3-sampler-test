@@ -44,37 +44,42 @@
 #include <cstdint>
 #include <climits>
 
-#include "unit_genericfx.h"   // Note: Include base definitions for genericfx units
+#include "unit_genericfx.h" // Note: Include base definitions for genericfx units
 
 #include "utils/buffer_ops.h" // for buf_clr_f32()
 #include "utils/int_math.h"   // for clipminmaxi32()
 
-class Effect {
- public:
+class Effect
+{
+public:
   /*===========================================================================*/
   /* Public Data Structures/Types/Enums. */
   /*===========================================================================*/
 
-  enum {
-    BUFFER_LENGTH = 0x40000 
+  enum
+  {
+    BUFFER_LENGTH = 0x40000
   };
 
-  enum {
+  enum
+  {
     PARAM1 = 0U,
     PARAM2,
     DEPTH,
-    PARAM4, 
+    PARAM4,
     NUM_PARAMS
   };
 
   // Note: Make sure that default param values correspond to declarations in header.c
-  struct Params {
+  struct Params
+  {
     float param1{0.f};
     float param2{0.f};
     float depth{0.f};
     uint32_t param4{1};
 
-    void reset() {
+    void reset()
+    {
       param1 = 0.f;
       param2 = 0.f;
       depth = 0.f;
@@ -82,14 +87,15 @@ class Effect {
     }
   };
 
-  enum {
+  enum
+  {
     PARAM4_VALUE0 = 0,
     PARAM4_VALUE1,
     PARAM4_VALUE2,
     PARAM4_VALUE3,
     NUM_PARAM4_VALUES,
   };
-  
+
   /*===========================================================================*/
   /* Lifecycle Methods. */
   /*===========================================================================*/
@@ -97,36 +103,37 @@ class Effect {
   Effect(void) {}
   ~Effect(void) {} // Note: will never actually be called for statically allocated instances
 
-  inline int8_t Init(const unit_runtime_desc_t * desc) {
+  inline int8_t Init(const unit_runtime_desc_t *desc)
+  {
     if (!desc)
       return k_unit_err_undef;
-    
+
     // Note: make sure the unit is being loaded to the correct platform/module target
     if (desc->target != unit_header.common.target)
       return k_unit_err_target;
-    
+
     // Note: check API compatibility with the one this unit was built against
     if (!UNIT_API_IS_COMPAT(desc->api))
       return k_unit_err_api_version;
-    
+
     // Check compatibility of samplerate with unit, for NTS-3 kaoss pad kit should be 48000
     if (desc->samplerate != 48000)
       return k_unit_err_samplerate;
 
     // Check compatibility of frame geometry
-    if (desc->input_channels != 2 || desc->output_channels != 2)  // should be stereo input/output
+    if (desc->input_channels != 2 || desc->output_channels != 2) // should be stereo input/output
       return k_unit_err_geometry;
 
     // If SDRAM buffers are required they must be allocated here
     if (!desc->hooks.sdram_alloc)
       return k_unit_err_memory;
-    float *m = (float *)desc->hooks.sdram_alloc(BUFFER_LENGTH*sizeof(float));
+    float *m = (float *)desc->hooks.sdram_alloc(BUFFER_LENGTH * sizeof(float));
     if (!m)
       return k_unit_err_memory;
 
     // Make sure memory is cleared
     buf_clr_f32(m, BUFFER_LENGTH);
-    
+
     allocated_buffer_ = m;
 
     // Cache the runtime descriptor for later use
@@ -134,21 +141,24 @@ class Effect {
 
     // Make sure parameters are reset to default values
     params_.reset();
-    
+
     return k_unit_err_none;
   }
 
-  inline void Teardown() {
+  inline void Teardown()
+  {
     // Note: buffers allocated via sdram_alloc are automatically freed after unit teardown
     // Note: cleanup and release resources if any
     allocated_buffer_ = nullptr;
   }
 
-  inline void Reset() {
+  inline void Reset()
+  {
     // Note: Reset effect state, excluding exposed parameter values.
   }
 
-  inline void Resume() {
+  inline void Resume()
+  {
     // Note: Effect will resume and exit suspend state. Usually means the synth
     // was selected and the render callback will be called again
 
@@ -156,7 +166,8 @@ class Effect {
     //       and trigger an asynchronous progressive clear on the audio thread (Process() handler)
   }
 
-  inline void Suspend() {
+  inline void Suspend()
+  {
     // Note: Effect will enter suspend state. Usually means another effect was
     // selected and thus the render callback will not be called
   }
@@ -165,31 +176,55 @@ class Effect {
   /* Other Public Methods. */
   /*===========================================================================*/
 
-  fast_inline void Process(const float * in, float * out, size_t frames) {
-    const float * __restrict in_p = in;
-    float * __restrict out_p = out;
-    const float * out_e = out_p + (frames << 1);  // assuming stereo output
+  fast_inline void Process(const float *in, float *out, size_t frames)
+  {
+    const float *__restrict in_p = in;
+    float *__restrict out_p = out;
+    const float *out_e = out_p + (frames << 1); // assuming stereo output
 
     // Caching current parameter values. Consider interpolating sensitive parameters.
     // const Params p = params_;
 
-    uint32_t writeidx = s_writeidx;
-    allocated_buffer_[ writeidx    & (BUFFER_LENGTH-1)] = in_p[0];
-    allocated_buffer_[(writeidx+1) & (BUFFER_LENGTH-1)] = in_p[1];
-    writeidx += 2;
-    
-    for (; out_p != out_e; in_p += 2, out_p += 2) {
-      // Process samples here
-      
-      // Note: this is a dummy unit only to demonstrate APIs, only passing through audio
-      float r = params_.param1;
-      out_p[0] = r * in_p[0] + (1.0 - r) * allocated_buffer_[(writeidx-100) & (BUFFER_LENGTH-1)]; // left sample
-      out_p[1] = r * in_p[1] + (1.0 - r) * allocated_buffer_[(writeidx+101) & (BUFFER_LENGTH-1)]; // right sample
+    if (params_.depth < 0)
+    {
+
+      // record mode
+
+      uint32_t writeidx = s_writeidx;
+      for (; out_p != out_e; in_p += 2, out_p += 2)
+      {
+        if (writeidx <= BUFFER_LENGTH - 1)
+        {
+          allocated_buffer_[writeidx + 0] = in_p[0];
+          allocated_buffer_[writeidx + 1] = in_p[1];
+          writeidx += 2;
+        }
+      }
+      s_writeidx = writeidx;
+    }
+    else
+    {
+
+      // play mode
+
+      uint32_t readidx = s_readidx;
+      for (; out_p != out_e; in_p += 2, out_p += 2)
+      {
+        if (readidx <= s_readidx_end && readidx <= BUFFER_LENGTH - 1)
+        {
+          out_p[0] = allocated_buffer_[readidx + 0];
+          out_p[1] = allocated_buffer_[readidx + 1];
+          readidx += 2;
+        }
+      }
+      s_readidx = readidx;
     }
   }
 
-  inline void setParameter(uint8_t index, int32_t value) {
-    switch (index) {
+  inline void setParameter(uint8_t index, int32_t value)
+  {
+    switch (index)
+    {
     case PARAM1:
       // 10bit 0-1023 parameter
       value = clipminmaxi32(0, value, 1023);
@@ -210,17 +245,19 @@ class Effect {
 
     case PARAM4:
       // strings type parameter, receiving index value
-      value = clipminmaxi32(PARAM4_VALUE0, value, NUM_PARAM4_VALUES-1);
+      value = clipminmaxi32(PARAM4_VALUE0, value, NUM_PARAM4_VALUES - 1);
       params_.param4 = value;
       break;
-      
+
     default:
       break;
     }
   }
 
-  inline int32_t getParameterValue(uint8_t index) const {
-    switch (index) {
+  inline int32_t getParameterValue(uint8_t index) const
+  {
+    switch (index)
+    {
     case PARAM1:
       // 10bit 0-1023 parameter
       return param_f32_to_10bit(params_.param1);
@@ -239,7 +276,7 @@ class Effect {
     case PARAM4:
       // strings type parameter, return index value
       return params_.param4;
-      
+
     default:
       break;
     }
@@ -247,19 +284,21 @@ class Effect {
     return INT_MIN; // Note: will be handled as invalid
   }
 
-  inline const char * getParameterStrValue(uint8_t index, int32_t value) const {
+  inline const char *getParameterStrValue(uint8_t index, int32_t value) const
+  {
     // Note: String memory must be accessible even after function returned.
     //       It can be assumed that caller will have copied or used the string
     //       before the next call to getParameterStrValue
-    
-    static const char * param4_strings[NUM_PARAM4_VALUES] = {
-      "VAL 0",
-      "VAL 1",
-      "VAL 2",
-      "VAL 3",
+
+    static const char *param4_strings[NUM_PARAM4_VALUES] = {
+        "VAL 0",
+        "VAL 1",
+        "VAL 2",
+        "VAL 3",
     };
-    
-    switch (index) {
+
+    switch (index)
+    {
     case PARAM4:
       if (value >= PARAM4_VALUE0 && value < NUM_PARAM4_VALUES)
         return param4_strings[value];
@@ -267,49 +306,64 @@ class Effect {
     default:
       break;
     }
-    
+
     return nullptr;
   }
-  
-  inline void setTempo(uint32_t tempo) {
+
+  inline void setTempo(uint32_t tempo)
+  {
     // const float bpmf = (tempo >> 16) + (tempo & 0xFFFF) / static_cast<float>(0x10000);
     (void)tempo;
   }
 
-  inline void tempo4ppqnTick(uint32_t counter) {
+  inline void tempo4ppqnTick(uint32_t counter)
+  {
     (void)counter;
   }
 
-  inline void touchEvent(uint8_t id, uint8_t phase, uint32_t x, uint32_t y) {
+  inline void touchEvent(uint8_t id, uint8_t phase, uint32_t x, uint32_t y)
+  {
     // Note: Touch x/y events are already mapped to specific parameters so there is usually there no need to set parameters from here.
     //       Audio source type effects, for instance, may require these events to trigger enveloppes and such.
-    
+
     (void)id;
     (void)phase;
     (void)x;
     (void)y;
-    
-    // switch (phase) {
+
+    switch (phase)
+    {
     // case k_unit_touch_phase_began:
     //   break;
     // case k_unit_touch_phase_moved:
     //   break;
-    // case k_unit_touch_phase_ended:
-    //   break;  
+    case k_unit_touch_phase_began:
+      if (params_.depth < 0)
+      {
+        s_writeidx = 0;
+      }
+      else
+      {
+        // TODO: lazily assume width is 1024 (2 ^ 10)
+        float quantized_x = (float)(x >> 7) / 8.0;
+        s_readidx = (uint32_t)BUFFER_LENGTH * quantized_x;
+        s_readidx_end = (uint32_t)BUFFER_LENGTH;
+      }
+      break;
     // case k_unit_touch_phase_stationary:
     //   break;
     // case k_unit_touch_phase_cancelled:
-    //   break; 
-    // default:
     //   break;
-    // }
+    default:
+      break;
+    }
   }
-  
+
   /*===========================================================================*/
   /* Static Members. */
   /*===========================================================================*/
-  
- private:
+
+private:
   /*===========================================================================*/
   /* Private Member Variables. */
   /*===========================================================================*/
@@ -319,10 +373,12 @@ class Effect {
   unit_runtime_desc_t runtime_desc_;
 
   Params params_;
-  
-  float * allocated_buffer_;
-  uint32_t s_writeidx = 0;
-  
+
+  float *allocated_buffer_;
+  uint32_t s_writeidx = BUFFER_LENGTH;
+  uint32_t s_readidx = 0;
+  uint32_t s_readidx_end = 0;
+
   /*===========================================================================*/
   /* Private Methods. */
   /*===========================================================================*/
