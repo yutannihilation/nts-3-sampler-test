@@ -214,7 +214,9 @@ public:
         {
           out_p[0] = allocated_buffer_[readidx + 0];
           out_p[1] = allocated_buffer_[readidx + 1];
-          readidx += 2;
+
+          // poor-mans' pitch shifter
+          readidx += 2 * speed;
         }
       }
       s_readidx = readidx;
@@ -348,6 +350,10 @@ public:
         float quantized_x = (float)(x >> 7);
         s_readidx = (uint32_t)(BUFFER_LENGTH * quantized_x / 8.0);
         s_readidx_end = (uint32_t)(BUFFER_LENGTH * (quantized_x + 1.0) / 8.0);
+
+        // TODO: lazily assume height is 1024 (2 ^ 10). max: 1024 >> 8 = 4
+        float quantized_y = (float)(y >> 8);
+        speed = 1.0 + quantized_y;
       }
       break;
     // case k_unit_touch_phase_stationary:
@@ -378,6 +384,7 @@ private:
   uint32_t s_writeidx = BUFFER_LENGTH;
   uint32_t s_readidx = 0;
   uint32_t s_readidx_end = 0;
+  float speed = 0.0;
 
   /*===========================================================================*/
   /* Private Methods. */
