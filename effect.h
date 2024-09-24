@@ -182,8 +182,9 @@ class Effect {
       // Process samples here
       
       // Note: this is a dummy unit only to demonstrate APIs, only passing through audio
-      out_p[0] = in_p[0]; // left sample
-      out_p[1] = in_p[1]; // right sample
+      float r = params_.param1;
+      out_p[0] = r * in_p[0] + (1.0 - r) * allocated_buffer_[(writeidx-100) & (BUFFER_LENGTH-1)]; // left sample
+      out_p[1] = r * in_p[1] + (1.0 - r) * allocated_buffer_[(writeidx+101) & (BUFFER_LENGTH-1)]; // right sample
     }
   }
 
